@@ -1,3 +1,4 @@
+import gdown
 import hashlib
 import re
 import time
@@ -101,18 +102,15 @@ def looks_like_html(content: bytes, content_type: str = "") -> bool:
 
 def download_csv_from_link(url: str, refresh: bool = False) -> str:
     """
-    Download a CSV from a Google Drive / Google Sheets / direct CSV URL into .cache.
-
-    For Google Drive files, the file must usually be shared as:
-    Anyone with the link -> Viewer.
-
-    For confidential company data, avoid public links. Use a controlled internal storage/API
-    or private Google API credentials instead.
+    Download CSV from Google Drive / Google Sheets / direct CSV URL.
+    Uses gdown for Google Drive links because Drive often returns HTML pages.
     """
-    download_url = google_link_to_download_url(url)
+    url = str(url).strip()
 
-    if not download_url:
+    if not url:
         raise ValueError("Please paste a Google Drive, Google Sheets, or direct CSV link.")
+
+    download_url = google_link_to_download_url(url)
 
     key = hashlib.md5(download_url.encode("utf-8")).hexdigest()
     local_path = CACHE_DIR / f"drive_data_{key}.csv"
@@ -120,34 +118,25 @@ def download_csv_from_link(url: str, refresh: bool = False) -> str:
     if local_path.exists() and not refresh:
         return str(local_path)
 
-    session = requests.Session()
-    response = session.get(download_url, timeout=180)
+    if "drive.google.com" in url:
+        output = str(local_path)
+        result = gdown.download(url=url, output=output, quiet=False, fuzzy=True)
+
+        if result is None or not Path(output).exists():
+            raise ValueError(
+                "Google Drive download failed. Make sure the file is shared as "
+                "'Anyone with the link - Viewer'."
+            )
+
+        if Path(output).stat().st_size == 0:
+            raise ValueError("Downloaded Google Drive file is empty.")
+
+        return output
+
+    response = requests.get(download_url, timeout=180)
     response.raise_for_status()
 
     content_type = response.headers.get("Content-Type", "")
-
-    # Google Drive sometimes returns a confirmation page for very large files.
-    # This handles the normal Google Drive confirmation-token flow when available.
-    if looks_like_html(response.content, content_type) and "drive.google.com" in download_url:
-        token = None
-        for cookie_key, cookie_value in response.cookies.items():
-            if cookie_key.startswith("download_warning"):
-                token = cookie_value
-                break
-
-        if token:
-            parsed = urlparse(download_url)
-            qs = parse_qs(parsed.query)
-            file_id = qs.get("id", [None])[0]
-            if file_id:
-                confirm_url = "https://drive.google.com/uc"
-                response = session.get(
-                    confirm_url,
-                    params={"export": "download", "confirm": token, "id": file_id},
-                    timeout=180,
-                )
-                response.raise_for_status()
-                content_type = response.headers.get("Content-Type", "")
 
     if looks_like_html(response.content, content_type):
         raise ValueError(
@@ -155,9 +144,6 @@ def download_csv_from_link(url: str, refresh: bool = False) -> str:
             "Check that the file is shared as 'Anyone with the link - Viewer', "
             "or use a Google Sheets link that can be exported as CSV."
         )
-
-    if not response.content:
-        raise ValueError("The downloaded file is empty.")
 
     local_path.write_bytes(response.content)
     return str(local_path)
