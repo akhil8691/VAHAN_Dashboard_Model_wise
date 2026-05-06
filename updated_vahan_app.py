@@ -164,6 +164,23 @@ def parse_mmyy_to_index(mmyy: str):
     year = 2000 + yy
     return year * 12 + mm
 
+def is_parquet_file(path: str) -> bool:
+    """Parquet files usually start and end with PAR1."""
+    try:
+        with open(path, "rb") as f:
+            return f.read(4) == b"PAR1"
+    except Exception:
+        return False
+
+
+def ensure_data_file(data_path: str) -> str:
+    """
+    If file is already Parquet, use it directly.
+    If file is CSV, convert it to cached Parquet.
+    """
+    if is_parquet_file(data_path):
+        return data_path
+    return ensure_parquet(data_path)
 
 def index_to_mmyy(idx: int) -> str:
     year = idx // 12
@@ -345,11 +362,11 @@ st.title("Vehicle Registrations Dashboard")
 with st.sidebar:
     st.header("Data Source")
 
-    uploaded = st.file_uploader("Upload CSV", type=["csv"])
+    uploaded = st.file_uploader("Upload CSV or Parquet", type=["csv", "parquet"])
 
     drive_url = st.text_input(
-        "Google Drive / Google Sheets / direct CSV link",
-        value="",
+        "Google Drive / Google Sheets / CSV / Parquet link",
+        value="https://drive.google.com/file/d/1HfvP46RKrPe-RD2ccdXJxGgHD9y9rxND/view?usp=sharing",
         placeholder="Paste public Google Drive, Google Sheets, or CSV URL",
     )
 
@@ -389,7 +406,7 @@ if not Path(csv_path).exists():
 # ---------------------------
 # Parquet + DuckDB view
 # ---------------------------
-parquet_path = ensure_parquet(csv_path)
+parquet_path = ensure_data_file(csv_path)
 con = get_con()
 parquet_sql = sql_quote_path(parquet_path)
 con.execute(f"CREATE OR REPLACE VIEW vdata AS SELECT * FROM read_parquet('{parquet_sql}')")
