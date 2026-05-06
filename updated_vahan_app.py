@@ -120,7 +120,7 @@ def download_csv_from_link(url: str, refresh: bool = False) -> str:
 
     if "drive.google.com" in url:
         output = str(local_path)
-        result = gdown.download(url=url, output=output, quiet=False, fuzzy=True)
+        result = gdown.download(url, output, quiet=False)
 
         if result is None or not Path(output).exists():
             raise ValueError(
